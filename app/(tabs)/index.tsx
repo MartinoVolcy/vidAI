@@ -54,28 +54,16 @@ export default function HomeScreen() {
     if (cameraRef.current && !isRecording) {
       setIsRecording(true);
       try {
-        // Start collecting gyroscope data
-        gyroscopeSubscription.current = Sensors.Gyroscope.addListener(data => {
-          setGyroscopeData((current: any) => [...current, data]);
-        });
-        
-        await cameraRef.current.recordAsync({
+         const video = await cameraRef.current.recordAsync({
           quality: '720p',
           maxDuration: 60,
-        }).then((video: { uri: SetStateAction<string | null>; }) => {
-          console.log('Recorded video URI:', video.uri); // Add this
-          setVideoUri(video.uri);
-          setIsRecording(false);
-          if (gyroscopeSubscription.current) {
-            gyroscopeSubscription.current.remove();
-          }
         });
+        console.log('Recorded video URI:', video.uri); // Add this
+        setVideoUri(video.uri);
+        setIsRecording(false);
       } catch (error) {
         console.error('Recording error:', error);
         setIsRecording(false);
-        if (gyroscopeSubscription.current) {
-          gyroscopeSubscription.current.remove();
-        }
       }
     }
   };
@@ -144,7 +132,7 @@ export default function HomeScreen() {
           style={styles.camera} 
           facing={facing}
           ref={cameraRef}
-          //video={true}
+          mode = "video"
         >
           <View style={styles.buttonContainer}>
             <TouchableOpacity 
