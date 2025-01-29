@@ -159,11 +159,12 @@ const stopRecording = async () => {
           mode = "video"
         >
           <View style={styles.buttonContainer}>
-            <TouchableOpacity 
-              style={styles.iconButton} 
+          <TouchableOpacity 
+              style={[styles.iconButton, isRecording && styles.disabledButton]} 
               onPress={() => setFacing(current => (current === 'back' ? 'front' : 'back'))}
+              disabled={isRecording}
             >
-              <CameraIcon  size={24} color="white" />
+              <CameraIcon size={24} color="white" />
             </TouchableOpacity>
             
             {!isRecording ? (
@@ -253,6 +254,10 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 30,
     backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  disabledButton: {
+    opacity: 0.3,
+    backgroundColor: 'rgba(0,0,0,0.2)',
   },
   recordButton: {
     flexDirection: 'row',
