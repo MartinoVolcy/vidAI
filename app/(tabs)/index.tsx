@@ -106,6 +106,20 @@ const stopRecording = async () => {
   }
 };
 
+const handleCloseCamera = async () => {
+  if (isRecording) {
+    // Stop recording and cleanup
+    await stopRecording();
+    // Explicitly delete any recorded video
+    return
+  }
+  // Reset all states
+  setShowCamera(false);
+  setIsRecording(false);
+  setVideoUri(null);
+  setGyroscopeData([]);
+};
+
   const handleUpload = () => {
     console.log('Video URI:', videoUri);
     console.log('Gyroscope Data:', gyroscopeData);
@@ -152,12 +166,18 @@ const stopRecording = async () => {
   return (
     <View style={styles.container}>
       <View style={styles.cameraContainer}>
-        <CameraView 
+      <CameraView 
           style={styles.camera} 
           facing={facing}
           ref={cameraRef}
-          mode = "video"
+          mode="video"
         >
+          <TouchableOpacity 
+            style={styles.closeButton}
+            onPress={handleCloseCamera}
+          >
+    <Text style={styles.closeButtonText}>×</Text>
+  </TouchableOpacity>
           <View style={styles.buttonContainer}>
           <TouchableOpacity 
               style={[styles.iconButton, isRecording && styles.disabledButton]} 
@@ -315,5 +335,23 @@ const styles = StyleSheet.create({
     color: 'white',
     textAlign: 'center',
     fontSize: 16,
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  closeButtonText: {
+    color: 'white',
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: '300',
   },
 });

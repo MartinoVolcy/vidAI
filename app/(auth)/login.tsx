@@ -62,7 +62,7 @@ export default function Login() {
              style={styles.button}
              onPress={signUpWithEmail}
            >
-             <Text style={styles.buttonText}>Continue</Text>
+             <Text style={styles.buttonText}>Sign In/Sign UP</Text>
            </TouchableOpacity>
            {/* <TouchableOpacity 
              style={[styles.button, styles.secondaryButton]}
