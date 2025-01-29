@@ -17,6 +17,16 @@ export default function HomeScreen() {
   const gyroscopeSubscription = useRef<any>(null);
 
   useEffect(() => {
+    const requestGyroPermission = async () => {
+      const { status } = await Sensors.Gyroscope.requestPermissionsAsync();
+      if (status !== 'granted') {
+        console.log('Gyroscope permission denied');
+      }
+    };
+    requestGyroPermission();
+  }, []);
+
+  useEffect(() => {
     console.log('Current videoUri:', videoUri);
     console.log('Current isRecording:', isRecording);
   }, [videoUri, isRecording]);
@@ -51,36 +61,50 @@ export default function HomeScreen() {
   }
 
   const startRecording = async () => {
-    if (cameraRef.current && !isRecording) {
-      setIsRecording(true);
-      try {
-         const video = await cameraRef.current.recordAsync({
-          quality: '720p',
-          maxDuration: 60,
-        });
-        console.log('Recorded video URI:', video.uri); // Add this
-        setVideoUri(video.uri);
-        setIsRecording(false);
-      } catch (error) {
-        console.error('Recording error:', error);
-        setIsRecording(false);
-      }
-    }
-  };
-
-  const stopRecording = async () => {
-    if (cameraRef.current && isRecording) {
-      try {
-        setIsRecording(false);
-        await cameraRef.current.stopRecording();
-        if (gyroscopeSubscription.current) {
-          gyroscopeSubscription.current.remove();
+  if (cameraRef.current && !isRecording) {
+    setIsRecording(true);
+    try {
+      // Start gyroscope updates
+      gyroscopeSubscription.current = Sensors.Gyroscope.addListener((data) => {
+        interface GyroscopeData {
+          x: number;
+          y: number;
+          z: number;
         }
-      } catch (error) {
-        console.error('Stop recording error:', error);
-      }
+
+        setGyroscopeData((prev: GyroscopeData[]) => [...prev, data as GyroscopeData]);
+      });
+      
+      // Set update interval (e.g., 100ms)
+      Sensors.Gyroscope.setUpdateInterval(100);
+
+      const video = await cameraRef.current.recordAsync({
+        quality: '720p',
+        maxDuration: 60,
+      });
+      setVideoUri(video.uri);
+      setIsRecording(false);
+    } catch (error) {
+      console.error('Recording error:', error);
+      setIsRecording(false);
     }
-  };
+  }
+};
+
+const stopRecording = async () => {
+  if (cameraRef.current && isRecording) {
+    try {
+      setIsRecording(false);
+      await cameraRef.current.stopRecording();
+      if (gyroscopeSubscription.current) {
+        gyroscopeSubscription.current.remove();
+        gyroscopeSubscription.current = null;
+      }
+    } catch (error) {
+      console.error('Stop recording error:', error);
+    }
+  }
+};
 
   const handleUpload = () => {
     console.log('Video URI:', videoUri);
