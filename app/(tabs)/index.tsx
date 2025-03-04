@@ -1,10 +1,11 @@
-import { Camera,CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import { useState, useRef, SetStateAction, useEffect } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import { Camera, CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import { StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import { Camera as CameraIcon } from 'lucide-react-native';
-
 import { Video, ResizeMode } from 'expo-av';
 import * as Sensors from 'expo-sensors';
+import { supabase } from '@/lib/supabase'; // Ensure this exports a valid supabase client
+// If you use the supabase client library, it already includes the storage.upload() method
 
 export default function HomeScreen() {
   const [facing, setFacing] = useState<CameraType>('back');
@@ -16,6 +17,7 @@ export default function HomeScreen() {
   const cameraRef = useRef<any>(null);
   const gyroscopeSubscription = useRef<any>(null);
 
+  // Request Gyroscope permission
   useEffect(() => {
     const requestGyroPermission = async () => {
       const { status } = await Sensors.Gyroscope.requestPermissionsAsync();
@@ -30,7 +32,13 @@ export default function HomeScreen() {
     console.log('Current videoUri:', videoUri);
     console.log('Current isRecording:', isRecording);
   }, [videoUri, isRecording]);
-  // Initial state with Open Camera button
+
+  // For debugging: Log Supabase URL to verify it’s set
+  useEffect(() => {
+    console.log('Supabase URL:', supabase.supabaseUrl);
+  }, []);
+
+  // If no video is recorded, show the Open Camera button
   if (!showCamera && !videoUri) {
     return (
       <View style={styles.initialContainer}>
@@ -38,14 +46,14 @@ export default function HomeScreen() {
           style={styles.openCameraButton}
           onPress={() => setShowCamera(true)}
         >
-          <CameraIcon  size={32} color="white" />
+          <CameraIcon size={32} color="white" />
           <Text style={styles.openCameraText}>Open Camera</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // Permission request screen
+  // Request camera permission screen
   if (!permission?.granted && !videoUri) {
     return (
       <View style={styles.container}>
@@ -60,77 +68,123 @@ export default function HomeScreen() {
     );
   }
 
+  // Start recording and capture gyroscope data
   const startRecording = async () => {
-  if (cameraRef.current && !isRecording) {
-    setIsRecording(true);
-    try {
-      // Start gyroscope updates
-      gyroscopeSubscription.current = Sensors.Gyroscope.addListener((data) => {
-        interface GyroscopeData {
-          x: number;
-          y: number;
-          z: number;
-        }
-
-        setGyroscopeData((prev: GyroscopeData[]) => [...prev, data as GyroscopeData]);
-      });
-      
-      // Set update interval (e.g., 100ms)
-      Sensors.Gyroscope.setUpdateInterval(100);
-
-      const video = await cameraRef.current.recordAsync({
-        quality: '720p',
-        maxDuration: 60,
-      });
-      setVideoUri(video.uri);
-      setIsRecording(false);
-    } catch (error) {
-      console.error('Recording error:', error);
-      setIsRecording(false);
-    }
-  }
-};
-
-const stopRecording = async () => {
-  if (cameraRef.current && isRecording) {
-    try {
-      setIsRecording(false);
-      await cameraRef.current.stopRecording();
-      if (gyroscopeSubscription.current) {
-        gyroscopeSubscription.current.remove();
-        gyroscopeSubscription.current = null;
+    if (cameraRef.current && !isRecording) {
+      setIsRecording(true);
+      try {
+        gyroscopeSubscription.current = Sensors.Gyroscope.addListener((data) => {
+          setGyroscopeData((prev: any) => [...prev, data]);
+        });
+        Sensors.Gyroscope.setUpdateInterval(100);
+        const video = await cameraRef.current.recordAsync({
+          quality: '720p',
+          maxDuration: 60,
+        });
+        setVideoUri(video.uri);
+        setIsRecording(false);
+      } catch (error) {
+        console.error('Recording error:', error);
+        setIsRecording(false);
       }
-    } catch (error) {
-      console.error('Stop recording error:', error);
     }
-  }
-};
-
-const handleCloseCamera = async () => {
-  if (isRecording) {
-    // Stop recording and cleanup
-    await stopRecording();
-    // Explicitly delete any recorded video
-    return
-  }
-  // Reset all states
-  setShowCamera(false);
-  setIsRecording(false);
-  setVideoUri(null);
-  setGyroscopeData([]);
-};
-
-  const handleUpload = () => {
-    console.log('Video URI:', videoUri);
-    console.log('Gyroscope Data:', gyroscopeData);
   };
 
+  // Stop recording and remove gyroscope listener
+  const stopRecording = async () => {
+    if (cameraRef.current && isRecording) {
+      try {
+        setIsRecording(false);
+        await cameraRef.current.stopRecording();
+        if (gyroscopeSubscription.current) {
+          gyroscopeSubscription.current.remove();
+          gyroscopeSubscription.current = null;
+        }
+      } catch (error) {
+        console.error('Stop recording error:', error);
+      }
+    }
+  };
+
+  // Close camera and reset state
+  const handleCloseCamera = async () => {
+    if (isRecording) {
+      await stopRecording();
+      return;
+    }
+    setShowCamera(false);
+    setIsRecording(false);
+    setVideoUri(null);
+    setGyroscopeData([]);
+  };
+
+  // Handle upload using Supabase's storage client
+  const handleUpload = async () => {
+    if (!videoUri) return;
+    try {
+      // Generate a unique file name and file path
+      const fileExt = videoUri.split('.').pop() || 'mp4';
+      const fileName = `${Math.random()}.${fileExt}`;
+      // Use the supabase client method to upload the file.
+      // Note: the upload method expects a file object.
+      // In React Native, you can pass an object with uri, name, and type.
+      const { data, error: uploadError } = await supabase
+        .storage
+        .from('videos')
+        .upload(fileName, { uri: videoUri, name: fileName, type: 'video/mp4' }, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+      
+      if (uploadError) {
+        console.error('Error uploading video:', uploadError);
+        return;
+      }
+      
+      // Get the public URL of the uploaded file
+      const { data: { publicUrl } } = supabase
+        .storage
+        .from('videos')
+        .getPublicUrl(fileName);
+      
+      // Get the current authenticated user
+      const { data: { user } } = await supabase.auth.getUser();
+      console.log("Authenticated user ID:", user?.id);
+      if (!user) {
+        console.error('No authenticated user found');
+        return;
+      }
+
+
+      
+      
+      // Insert a record into your videos table with the public URL and gyroscope data
+      const { data: videoRecord, error: dbError } = await supabase
+        .from('videos')
+        .insert([{
+          user_id: user.id,
+          video_url: publicUrl,
+          gyroscope_data: gyroscopeData,
+        }]);
+      
+      if (dbError) {
+        console.error('Error inserting video record:', dbError);
+        return;
+      }
+      
+      console.log('Upload successful!', videoRecord);
+    } catch (error) {
+      console.error('Unexpected error:', error);
+    }
+  };
+
+  // Reset state for a new recording
   const handleRetake = () => {
     setVideoUri(null);
     setGyroscopeData([]);
   };
 
-  // Video preview screen
+  // If video is recorded, show preview with retake and upload options
   if (videoUri) {
     return (
       <View style={styles.container}>
@@ -141,20 +195,13 @@ const handleCloseCamera = async () => {
             useNativeControls
             resizeMode={ResizeMode.CONTAIN}
             shouldPlay
-            
           />
         </View>
         <View style={styles.buttonRow}>
-          <TouchableOpacity 
-            style={styles.uploadButton}
-            onPress={handleRetake}
-          >
+          <TouchableOpacity style={styles.uploadButton} onPress={handleRetake}>
             <Text style={styles.uploadText}>Retake</Text>
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.uploadButton}
-            onPress={handleUpload}
-          >
+          <TouchableOpacity style={styles.uploadButton} onPress={handleUpload}>
             <Text style={styles.uploadText}>Upload</Text>
           </TouchableOpacity>
         </View>
@@ -162,31 +209,27 @@ const handleCloseCamera = async () => {
     );
   }
 
-  // Camera view
+  // Otherwise, show the camera view for recording
   return (
     <View style={styles.container}>
       <View style={styles.cameraContainer}>
-      <CameraView 
+        <CameraView 
           style={styles.camera} 
           facing={facing}
           ref={cameraRef}
           mode="video"
         >
-          <TouchableOpacity 
-            style={styles.closeButton}
-            onPress={handleCloseCamera}
-          >
-    <Text style={styles.closeButtonText}>×</Text>
-  </TouchableOpacity>
+          <TouchableOpacity style={styles.closeButton} onPress={handleCloseCamera}>
+            <Text style={styles.closeButtonText}>×</Text>
+          </TouchableOpacity>
           <View style={styles.buttonContainer}>
-          <TouchableOpacity 
+            <TouchableOpacity 
               style={[styles.iconButton, isRecording && styles.disabledButton]} 
               onPress={() => setFacing(current => (current === 'back' ? 'front' : 'back'))}
               disabled={isRecording}
             >
               <CameraIcon size={24} color="white" />
             </TouchableOpacity>
-            
             {!isRecording ? (
               <TouchableOpacity 
                 style={[styles.recordButton, styles.startRecord]}
@@ -208,7 +251,6 @@ const handleCloseCamera = async () => {
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -222,8 +264,6 @@ const styles = StyleSheet.create({
   },
   cameraContainer: {
     flex: 0.9,
-    //marginTop: 20,
-    //marginBottom: 20,
     overflow: 'hidden',
     borderRadius: 20,
   },
@@ -234,7 +274,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#000',
-    width: '100%',  // Add this
+    width: '100%',
   },
   buttonRow: {
     flexDirection: 'row',
@@ -286,11 +326,6 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 10,
   },
-  recordText: {
-    color: 'white',
-    marginLeft: 10,
-    fontSize: 18,
-  },
   recordIcon: {
     width: 40,
     height: 40,
@@ -322,8 +357,8 @@ const styles = StyleSheet.create({
   },
   video: {
     flex: 1,
-    width: '100%',  // Add this
-  height: '100%', // Add this
+    width: '100%',
+    height: '100%',
   },
   uploadButton: {
     backgroundColor: '#007AFF',
