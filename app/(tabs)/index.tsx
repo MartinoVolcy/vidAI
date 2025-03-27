@@ -1,11 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, CameraView, CameraType, useCameraPermissions } from 'expo-camera';
-import { StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Alert, ScrollView } from 'react-native';
 import { Camera as CameraIcon } from 'lucide-react-native';
 import { Video, ResizeMode } from 'expo-av';
 import * as Sensors from 'expo-sensors';
 import { supabase } from '@/lib/supabase'; // Ensure this exports a valid supabase client
-// If you use the supabase client library, it already includes the storage.upload() method
 
 export default function HomeScreen() {
   const [facing, setFacing] = useState<CameraType>('back');
@@ -13,9 +12,11 @@ export default function HomeScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [gyroscopeData, setGyroscopeData] = useState<any>([]);
+  const [accelerometerData, setAccelerometerData] = useState<any>([]);
   const [showCamera, setShowCamera] = useState(false);
   const cameraRef = useRef<any>(null);
   const gyroscopeSubscription = useRef<any>(null);
+  const accelerometerSubscription = useRef<any>(null);
 
   // Request Gyroscope permission
   useEffect(() => {
@@ -30,8 +31,10 @@ export default function HomeScreen() {
 
   useEffect(() => {
     console.log('Current videoUri:', videoUri);
-    console.log('Current isRecording:', isRecording);
-  }, [videoUri, isRecording]);
+    console.log('isRecording:', isRecording);
+    console.log('Gyroscope Data:', gyroscopeData);
+    console.log('Accelerometer Data:', accelerometerData);
+  }, [videoUri, isRecording, gyroscopeData, accelerometerData]);
 
   // For debugging: Log Supabase URL to verify it’s set
   useEffect(() => {
@@ -68,15 +71,23 @@ export default function HomeScreen() {
     );
   }
 
-  // Start recording and capture gyroscope data
+  // Start recording and capture gyroscope & accelerometer data
   const startRecording = async () => {
     if (cameraRef.current && !isRecording) {
       setIsRecording(true);
       try {
+        // Start gyroscope listener
         gyroscopeSubscription.current = Sensors.Gyroscope.addListener((data) => {
           setGyroscopeData((prev: any) => [...prev, data]);
         });
         Sensors.Gyroscope.setUpdateInterval(100);
+
+        // Start accelerometer listener
+        accelerometerSubscription.current = Sensors.Accelerometer.addListener((data) => {
+          setAccelerometerData((prev: any) => [...prev, data]);
+        });
+        Sensors.Accelerometer.setUpdateInterval(100);
+
         const video = await cameraRef.current.recordAsync({
           quality: '720p',
           maxDuration: 60,
@@ -90,7 +101,7 @@ export default function HomeScreen() {
     }
   };
 
-  // Stop recording and remove gyroscope listener
+  // Stop recording and remove sensor listeners
   const stopRecording = async () => {
     if (cameraRef.current && isRecording) {
       try {
@@ -99,6 +110,10 @@ export default function HomeScreen() {
         if (gyroscopeSubscription.current) {
           gyroscopeSubscription.current.remove();
           gyroscopeSubscription.current = null;
+        }
+        if (accelerometerSubscription.current) {
+          accelerometerSubscription.current.remove();
+          accelerometerSubscription.current = null;
         }
       } catch (error) {
         console.error('Stop recording error:', error);
@@ -116,6 +131,7 @@ export default function HomeScreen() {
     setIsRecording(false);
     setVideoUri(null);
     setGyroscopeData([]);
+    setAccelerometerData([]);
   };
 
   // Handle upload using Supabase's storage client
@@ -125,9 +141,8 @@ export default function HomeScreen() {
       // Generate a unique file name and file path
       const fileExt = videoUri.split('.').pop() || 'mp4';
       const fileName = `${Math.random()}.${fileExt}`;
-      // Use the supabase client method to upload the file.
-      // Note: the upload method expects a file object.
-      // In React Native, you can pass an object with uri, name, and type.
+      
+      // Upload the video file to Supabase storage
       const { data, error: uploadError } = await supabase
         .storage
         .from('videos')
@@ -154,17 +169,15 @@ export default function HomeScreen() {
         console.error('No authenticated user found');
         return;
       }
-
-
       
-      
-      // Insert a record into your videos table with the public URL and gyroscope data
+      // Insert a record into your videos table with separate sensor data objects
       const { data: videoRecord, error: dbError } = await supabase
         .from('videos')
         .insert([{
           user_id: user.id,
           video_url: publicUrl,
           gyroscope_data: gyroscopeData,
+          accelerometer_data: accelerometerData,
         }]);
       
       if (dbError) {
@@ -173,6 +186,7 @@ export default function HomeScreen() {
       }
       
       console.log('Upload successful!', videoRecord);
+      Alert.alert("Upload Successful", "Your video and sensor data have been uploaded.");
     } catch (error) {
       console.error('Unexpected error:', error);
     }
@@ -182,6 +196,7 @@ export default function HomeScreen() {
   const handleRetake = () => {
     setVideoUri(null);
     setGyroscopeData([]);
+    setAccelerometerData([]);
   };
 
   // If video is recorded, show preview with retake and upload options
@@ -197,6 +212,14 @@ export default function HomeScreen() {
             shouldPlay
           />
         </View>
+        <View style={styles.sensorDataContainer}>
+          <Text style={styles.sensorDataText}>
+            Gyro: {gyroscopeData.length ? JSON.stringify(gyroscopeData[gyroscopeData.length - 1]) : '-'}
+          </Text>
+          <Text style={styles.sensorDataText}>
+            Accel: {accelerometerData.length ? JSON.stringify(accelerometerData[accelerometerData.length - 1]) : '-'}
+          </Text>
+        </View>
         <View style={styles.buttonRow}>
           <TouchableOpacity style={styles.uploadButton} onPress={handleRetake}>
             <Text style={styles.uploadText}>Retake</Text>
@@ -209,7 +232,7 @@ export default function HomeScreen() {
     );
   }
 
-  // Otherwise, show the camera view for recording
+  // Otherwise, show the camera view for recording along with a live sensor overlay
   return (
     <View style={styles.container}>
       <View style={styles.cameraContainer}>
@@ -246,11 +269,23 @@ export default function HomeScreen() {
               </TouchableOpacity>
             )}
           </View>
+          {/* Live sensor data overlay moved to top left with capped height */}
+          <View style={styles.sensorOverlay}>
+            <ScrollView>
+              <Text style={styles.sensorText}>
+                Gyro: {gyroscopeData.length ? JSON.stringify(gyroscopeData[gyroscopeData.length - 1]) : '-'}
+              </Text>
+              <Text style={styles.sensorText}>
+                Accel: {accelerometerData.length ? JSON.stringify(accelerometerData[accelerometerData.length - 1]) : '-'}
+              </Text>
+            </ScrollView>
+          </View>
         </CameraView>
       </View>
     </View>
   );
 }
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -388,5 +423,27 @@ const styles = StyleSheet.create({
     fontSize: 24,
     lineHeight: 28,
     fontWeight: '300',
+  },
+  sensorOverlay: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    padding: 8,
+    borderRadius: 8,
+    maxHeight: 200, // cap the height
+    width: '40%',   // adjust width as needed
+  },
+  sensorText: {
+    color: 'white',
+    fontSize: 12,
+  },
+  sensorDataContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 10,
+  },
+  sensorDataText: {
+    color: 'white',
+    fontSize: 14,
   },
 });
